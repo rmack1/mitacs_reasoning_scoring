@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reasoning Coder</title>
+<style>
+  :root{
+    --bg:#f2f8f3; --panel:#ffffff; --border:#cfe3d2; --text:#1e2b21; --muted:#5c6b60;
+    --accent:#2f9e44; --accent-light:#e6f7ea; --good:#2f9e44; --bad:#e03131; --warn:#e8890c;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background:var(--bg); color:var(--text); margin:0; padding:24px;
+    line-height:1.45;
+  }
+  h1{font-size:22px; margin:0 0 4px;}
+  h2{font-size:17px; margin:0 0 12px; border-bottom:1px solid var(--border); padding-bottom:8px;}
+  h3{font-size:14px; margin:18px 0 8px; color:var(--text);}
+  .subtitle{color:var(--muted); margin:0 0 20px; font-size:13px;}
+  .wrap{max-width:900px; margin:0 auto;}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin-bottom:16px;}
+  label{display:block; font-size:13px; font-weight:600; margin-bottom:4px; color:var(--text);}
+  .hint{font-size:12px; color:var(--muted); margin:2px 0 8px;}
+  input[type=text], input[type=number]{
+    width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px;
+    font-size:14px; background:#fff; color:var(--text);
+  }
+  .row{display:flex; gap:16px; flex-wrap:wrap;}
+  .row > div{flex:1; min-width:200px;}
+  button{
+    cursor:pointer; border:1px solid var(--border); background:#fff; color:var(--text);
+    padding:7px 12px; border-radius:6px; font-size:13px; font-weight:600;
+  }
+  button:hover{border-color:var(--accent);}
+  button.primary{background:var(--accent); color:#fff; border-color:var(--accent);}
+  button.primary:hover{opacity:0.92;}
+  button.danger{color:var(--bad); border-color:var(--bad);}
+  button.small{padding:4px 9px; font-size:12px;}
+  .btn-group{display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;}
+
+  .subsection{border:1px solid var(--border); border-radius:8px; padding:14px 16px; margin-bottom:14px; background:#fafbfa;}
+
+  .checklist{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;}
+  .checklist label.chip{
+    display:flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:20px;
+    padding:6px 12px; font-size:13px; font-weight:500; cursor:pointer; background:#fff;
+  }
+  .checklist label.chip.checked{background:var(--accent-light); border-color:var(--accent);}
+  .checklist input{margin:0;}
+
+  .computed{font-size:13px; color:var(--muted); margin:4px 0 10px;}
+  .computed strong{color:var(--text);}
+  .computed-highlight{
+    font-size:14px; font-weight:700; background:var(--accent-light); border:1px solid var(--accent);
+    border-radius:6px; padding:8px 12px; margin:10px 0;
+  }
+
+  .scale-buttons{display:flex; gap:6px;}
+  .scale-buttons button{min-width:38px;}
+  .scale-buttons button.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+
+  .status{font-size:13px; padding:8px 10px; border-radius:6px; margin-bottom:14px;}
+  .status.ok{background:#d3f9d8; color:#2b8a3e;}
+  .status.none{background:#fff3bf; color:#997404;}
+
+  table{width:100%; border-collapse:collapse; font-size:12px; margin-top:10px;}
+  table th, table td{border:1px solid var(--border); padding:4px 6px; text-align:left;}
+  table th{background:#f1f3f5;}
+  details summary{cursor:pointer; font-weight:600; font-size:13px; margin-bottom:6px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Reasoning Coder</h1>
+  <p class="subtitle">Data is saved automatically in this browser as you go. Export CSV / JSON backups regularly.</p>
+
+  <!-- PARTICIPANT PANEL -->
+  <div class="panel">
+    <h2>Participant</h2>
+    <div class="row">
+      <div>
+        <label>Participant ID</label>
+        <input type="text" id="participantId" placeholder="e.g. P001">
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="primary" id="loadBtn">Load / start participant</button>
+      <button class="danger" id="clearBtn">Clear this participant's data</button>
+    </div>
+    <div id="statusBox" class="status none" style="margin-top:12px;">No participant loaded.</div>
+  </div>
+
+  <div id="formArea" style="display:none;">
+
+    <!-- PARTICIPANT DETAILS -->
+    <div class="panel">
+      <h2>Participant Details</h2>
+      <div class="row">
+        <div>
+          <label>Control ID</label>
+          <input type="text" id="controlId" placeholder="e.g. C001">
+          <p class="hint">This is linked to the Participant ID above, not a separate participant record.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- HIGH PREFERENCE STORY -->
+    <div class="panel" id="storyPanel_high">
+      <h2>High Preference Story</h2>
+    </div>
+
+    <!-- LOW PREFERENCE / CONTROL STORY -->
+    <div class="panel" id="storyPanel_low">
+      <h2>Low Preference / Control Story</h2>
+    </div>
+
+    <!-- REVIEW -->
+    <div class="panel">
+      <h2>Review this participant's data</h2>
+      <details>
+        <summary>Show summary table</summary>
+        <div id="reviewTable"></div>
+      </details>
+    </div>
+
+  </div>
+
+  <!-- SAVED PARTICIPANTS -->
+  <div class="panel">
+    <h2>Participants saved in this browser</h2>
+    <p class="hint">If a participant you expect isn't listed here, you're likely viewing this tool from a different browser/file copy than the one you entered that data in. Always use the same published link (GitHub Pages URL) to keep everything in one place.</p>
+    <div id="savedParticipantsBox"></div>
+  </div>
+
+  <!-- EXPORT PANEL -->
+  <div class="panel">
+    <h2>Export</h2>
+    <div class="btn-group">
+      <button id="exportCurrentBtn">Export this participant (CSV)</button>
+      <button id="exportAllBtn">Export ALL participants (CSV)</button>
+      <button id="downloadBackupBtn">Download full backup (JSON)</button>
+      <label class="small" style="display:inline-block;">
+        <input type="file" id="restoreFile" accept="application/json" style="display:none;">
+        <button id="restoreBtn" type="button">Restore from backup</button>
+      </label>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const STORAGE_KEY = "reasoning_coder_v1";
+
+// ============================================================================
+// REASON TYPE CHECKLISTS — starter sets. Add more items any time by adding
+// strings to these arrays; the UI and CSV export pick up new items automatically.
+// ============================================================================
+const PLOT_REASON_TYPES = ["Favourite event 1", "Favourite event 2", "Favourite event 3"];
+const CHARACTER_REASON_TYPES = ["Favourite color", "Favourite outfit", "Favourite food", "Hair color", "Eye color"];
+
+const STORIES = [
+  { key: "high", label: "High Preference Story" },
+  { key: "low", label: "Low Preference / Control Story" }
+];
+
+function blankReasonGroup(){
+  return { totalReasons: null, plotChecks: {}, characterChecks: {} };
+}
+function blankStory(){
+  return {
+    positive: blankReasonGroup(),
+    negative: blankReasonGroup(),
+    enjoyment: null,
+    characterSimilarity: null
+  };
+}
+function blankParticipant(){
+  return {
+    controlId: "",
+    stories: { high: blankStory(), low: blankStory() }
+  };
+}
+
+function loadAllData(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+function saveAllData(all){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+}
+
+let allData = loadAllData();
+let currentId = null;
+let current = null;
+
+const $ = id => document.getElementById(id);
+
+function setStatus(msg, ok){
+  const box = $("statusBox");
+  box.textContent = msg;
+  box.className = "status " + (ok ? "ok" : "none");
+}
+
+function saveCurrent(){
+  if(!currentId) return;
+  allData[currentId] = current;
+  saveAllData(allData);
+}
+
+function loadParticipant(){
+  const id = $("participantId").value.trim();
+  if(!id){ alert("Enter a Participant ID first."); return; }
+  currentId = id;
+  if(allData[id]){
+    current = allData[id];
+    setStatus(`Loaded existing data for "${id}".`, true);
+  }else{
+    current = blankParticipant();
+    allData[id] = current;
+    saveAllData(allData);
+    setStatus(`Started new record for "${id}".`, true);
+  }
+  $("controlId").value = current.controlId || "";
+  $("formArea").style.display = "block";
+  renderAll();
+}
+
+function clearParticipant(){
+  if(!currentId){ alert("Load a participant first."); return; }
+  if(!confirm(`Clear all data for participant "${currentId}"? This cannot be undone.`)) return;
+  current = blankParticipant();
+  allData[currentId] = current;
+  saveAllData(allData);
+  $("controlId").value = "";
+  renderAll();
+  setStatus(`Cleared data for "${currentId}".`, true);
+}
+
+$("loadBtn").addEventListener("click", loadParticipant);
+$("clearBtn").addEventListener("click", clearParticipant);
+$("controlId").addEventListener("input", () => {
+  if(!current) return;
+  current.controlId = $("controlId").value;
+  saveCurrent();
+});
+
+// ---- Counting helpers ----
+function countChecked(checksObj){
+  return Object.values(checksObj).filter(Boolean).length;
+}
+function relevantReasonsCount(group){
+  return countChecked(group.plotChecks) + countChecked(group.characterChecks);
+}
+function totalReasonsForStory(story){
+  const pos = story.positive.totalReasons;
+  const neg = story.negative.totalReasons;
+  if(pos === null && neg === null) return null;
+  return (pos || 0) + (neg || 0);
+}
+function totalRelevantForStory(story){
+  return relevantReasonsCount(story.positive) + relevantReasonsCount(story.negative);
+}
+function totalIrrelevantForStory(story){
+  const total = totalReasonsForStory(story);
+  if(total === null) return null;
+  return Math.max(total - totalRelevantForStory(story), 0);
+}
+
+// ---- Rendering a reasons group (Positive or Negative) ----
+function renderReasonGroup(storyKey, groupKey, groupLabel, group){
+  const wrap = document.createElement("div");
+  wrap.className = "subsection";
+
+  const title = document.createElement("h3");
+  title.textContent = groupLabel;
+  wrap.appendChild(title);
+
+  // Total reasons (manual entry)
+  const totalLabel = document.createElement("label");
+  totalLabel.textContent = "Total Number of Reasons";
+  wrap.appendChild(totalLabel);
+  const totalInput = document.createElement("input");
+  totalInput.type = "number";
+  totalInput.min = "0";
+  totalInput.value = group.totalReasons === null ? "" : group.totalReasons;
+  totalInput.style.marginBottom = "10px";
+  totalInput.onchange = () => {
+    group.totalReasons = totalInput.value === "" ? null : parseInt(totalInput.value, 10);
+    saveCurrent();
+    renderAll();
+  };
+  wrap.appendChild(totalInput);
+
+  // Plot reasons checklist
+  const plotLabel = document.createElement("label");
+  plotLabel.textContent = "Plot Reasons";
+  wrap.appendChild(plotLabel);
+  const plotList = document.createElement("div");
+  plotList.className = "checklist";
+  PLOT_REASON_TYPES.forEach(item => {
+    plotList.appendChild(renderCheckChip(item, !!group.plotChecks[item], (checked) => {
+      group.plotChecks[item] = checked;
+      saveCurrent();
+      renderAll();
+    }));
+  });
+  wrap.appendChild(plotList);
+  const plotComputed = document.createElement("div");
+  plotComputed.className = "computed";
+  plotComputed.innerHTML = `Plot Reasons Count: <strong>${countChecked(group.plotChecks)}</strong>`;
+  wrap.appendChild(plotComputed);
+
+  // Character reasons checklist
+  const charLabel = document.createElement("label");
+  charLabel.textContent = "Character Reasons";
+  wrap.appendChild(charLabel);
+  const charList = document.createElement("div");
+  charList.className = "checklist";
+  CHARACTER_REASON_TYPES.forEach(item => {
+    charList.appendChild(renderCheckChip(item, !!group.characterChecks[item], (checked) => {
+      group.characterChecks[item] = checked;
+      saveCurrent();
+      renderAll();
+    }));
+  });
+  wrap.appendChild(charList);
+  const charComputed = document.createElement("div");
+  charComputed.className = "computed";
+  charComputed.innerHTML = `Character Reasons Count: <strong>${countChecked(group.characterChecks)}</strong>`;
+  wrap.appendChild(charComputed);
+
+  // Relevant reasons (computed) — reasons tied to something we manipulated (plot/character)
+  const relevant = relevantReasonsCount(group);
+  const relevantEl = document.createElement("div");
+  relevantEl.className = "computed-highlight";
+  relevantEl.textContent = `Relevant Reasons — manipulated (Plot + Character): ${relevant}`;
+  wrap.appendChild(relevantEl);
+
+  // Irrelevant reasons (computed) — reasons the child gave that aren't tied to anything we manipulated
+  const irrelevantEl = document.createElement("div");
+  irrelevantEl.className = "computed";
+  const irrelevantValue = group.totalReasons === null ? "—" : Math.max(group.totalReasons - relevant, 0);
+  irrelevantEl.innerHTML = `Irrelevant Reasons — given by the child, not tied to manipulation (Total − Relevant): <strong>${irrelevantValue}</strong>`;
+  wrap.appendChild(irrelevantEl);
+
+  return wrap;
+}
+
+function renderCheckChip(labelText, checked, onToggle){
+  const label = document.createElement("label");
+  label.className = "chip" + (checked ? " checked" : "");
+  label.innerHTML = `<input type="checkbox" ${checked ? "checked" : ""}> ${labelText}`;
+  const input = label.querySelector("input");
+  input.onchange = () => onToggle(input.checked);
+  return label;
+}
+
+function renderScaleButtons(value, max, onSelect){
+  const wrap = document.createElement("div");
+  wrap.className = "scale-buttons";
+  for(let i = 1; i <= max; i++){
+    const b = document.createElement("button");
+    b.className = "small" + (value === i ? " active" : "");
+    b.textContent = i;
+    b.onclick = () => onSelect(i);
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
+// ---- Rendering a full story panel ----
+function renderStoryPanel(storyKey, storyLabel){
+  const panel = $(`storyPanel_${storyKey}`);
+  panel.innerHTML = `<h2>${storyLabel}</h2>`;
+  const story = current.stories[storyKey];
+
+  // Enjoyment / Character Similarity at the top
+  const scoresRow = document.createElement("div");
+  scoresRow.className = "row";
+  scoresRow.style.marginBottom = "18px";
+
+  const enjoyDiv = document.createElement("div");
+  const enjoyLabel = document.createElement("label");
+  enjoyLabel.textContent = "Story Enjoyment (out of 5)";
+  enjoyDiv.appendChild(enjoyLabel);
+  enjoyDiv.appendChild(renderScaleButtons(story.enjoyment, 5, (v) => {
+    story.enjoyment = v;
+    saveCurrent(); renderAll();
+  }));
+  scoresRow.appendChild(enjoyDiv);
+
+  const simDiv = document.createElement("div");
+  const simLabel = document.createElement("label");
+  simLabel.textContent = "Character Similarity (out of 5)";
+  simDiv.appendChild(simLabel);
+  simDiv.appendChild(renderScaleButtons(story.characterSimilarity, 5, (v) => {
+    story.characterSimilarity = v;
+    saveCurrent(); renderAll();
+  }));
+  scoresRow.appendChild(simDiv);
+
+  panel.appendChild(scoresRow);
+
+  // Totals summary — at the top, auto-calculated from the Positive/Negative sections below
+  const total = totalReasonsForStory(story);
+  const totalRelevant = totalRelevantForStory(story);
+  const totalIrrelevant = totalIrrelevantForStory(story);
+  const summaryEl = document.createElement("div");
+  summaryEl.className = "computed-highlight";
+  summaryEl.innerHTML =
+    `Total Number of Reasons (Total Positive + Total Negative): ${total === null ? "—" : total}<br>` +
+    `Total Relevant Reasons (Plot + Character, both groups): ${totalRelevant}<br>` +
+    `Total Irrelevant Reasons (Total − Relevant): ${totalIrrelevant === null ? "—" : totalIrrelevant}`;
+  panel.appendChild(summaryEl);
+
+  panel.appendChild(renderReasonGroup(storyKey, "positive", "Positive Reasons", story.positive));
+  panel.appendChild(renderReasonGroup(storyKey, "negative", "Negative Reasons", story.negative));
+}
+
+// ---- Review ----
+function renderReview(){
+  const rows = [["Field", "Value"]];
+  rows.push(["Participant ID", currentId]);
+  rows.push(["Control ID", current.controlId]);
+  STORIES.forEach(({key, label}) => {
+    const s = current.stories[key];
+    rows.push([`${label} — Total Reasons`, totalReasonsForStory(s) ?? ""]);
+    rows.push([`${label} — Positive: total/relevant/plot/character`,
+      `${s.positive.totalReasons ?? ""} / ${relevantReasonsCount(s.positive)} / ${countChecked(s.positive.plotChecks)} / ${countChecked(s.positive.characterChecks)}`]);
+    rows.push([`${label} — Negative: total/relevant/plot/character`,
+      `${s.negative.totalReasons ?? ""} / ${relevantReasonsCount(s.negative)} / ${countChecked(s.negative.plotChecks)} / ${countChecked(s.negative.characterChecks)}`]);
+    rows.push([`${label} — Enjoyment / Character Similarity`, `${s.enjoyment ?? ""} / ${s.characterSimilarity ?? ""}`]);
+  });
+
+  const table = document.createElement("table");
+  rows.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    r.forEach(c => {
+      const cell = document.createElement(i === 0 ? "th" : "td");
+      cell.textContent = c;
+      tr.appendChild(cell);
+    });
+    table.appendChild(tr);
+  });
+  $("reviewTable").innerHTML = "";
+  $("reviewTable").appendChild(table);
+}
+
+// ---- Saved participants ----
+function csvEscapeHtml(s){
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+function renderSavedParticipants(){
+  const box = $("savedParticipantsBox");
+  const ids = Object.keys(allData);
+  if(ids.length === 0){
+    box.innerHTML = "<em>No participants saved yet.</em>";
+    return;
+  }
+  box.innerHTML = `<p style="margin:0 0 8px;"><strong>${ids.length}</strong> participant(s) saved: ${ids.map(id => csvEscapeHtml(id)).join(", ")}</p>`;
+}
+
+function renderAll(){
+  renderSavedParticipants();
+  if(!current) return;
+  STORIES.forEach(({key, label}) => renderStoryPanel(key, label));
+  renderReview();
+}
+
+renderSavedParticipants();
+
+// ---- CSV export ----
+function csvEscape(val){
+  if(val === undefined || val === null) return "";
+  const s = String(val);
+  if(s.includes(",") || s.includes('"') || s.includes("\n")){
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function participantToRow(id, data){
+  const row = { participant_id: id, control_id: data.controlId };
+
+  STORIES.forEach(({key, label}) => {
+    const prefix = key === "high" ? "high_preference" : "low_preference";
+    const s = data.stories[key];
+
+    row[`${prefix}_total_number_of_reasons`] = totalReasonsForStory(s) ?? "";
+
+    ["positive","negative"].forEach(groupKey => {
+      const g = s[groupKey];
+      const relevantCount = relevantReasonsCount(g);
+      row[`${prefix}_total_number_of_${groupKey}_reasons`] = g.totalReasons ?? "";
+      row[`${prefix}_${groupKey}_relevant_reasons`] = relevantCount;
+      row[`${prefix}_${groupKey}_irrelevant_reasons`] = g.totalReasons === null ? "" : Math.max(g.totalReasons - relevantCount, 0);
+      row[`${prefix}_${groupKey}_number_of_plot_reasons`] = countChecked(g.plotChecks);
+      row[`${prefix}_${groupKey}_number_of_character_reasons`] = countChecked(g.characterChecks);
+      // Detailed checklist breakdown, for auditing which specific items were checked
+      PLOT_REASON_TYPES.forEach(item => {
+        row[`${prefix}_${groupKey}_plot_${item}`] = g.plotChecks[item] ? "Yes" : "No";
+      });
+      CHARACTER_REASON_TYPES.forEach(item => {
+        row[`${prefix}_${groupKey}_character_${item}`] = g.characterChecks[item] ? "Yes" : "No";
+      });
+    });
+
+    row[`${prefix}_story_enjoyment`] = s.enjoyment ?? "";
+    row[`${prefix}_character_similarity`] = s.characterSimilarity ?? "";
+  });
+
+  return row;
+}
+
+function rowsToCsv(rows){
+  if(rows.length === 0) return "";
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.map(csvEscape).join(",")];
+  rows.forEach(r => {
+    lines.push(headers.map(h => csvEscape(r[h])).join(","));
+  });
+  return lines.join("\n");
+}
+
+function downloadText(filename, text, mime){
+  const blob = new Blob([text], {type: mime || "text/plain"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$("exportCurrentBtn").addEventListener("click", () => {
+  if(!currentId){ alert("Load a participant first."); return; }
+  const row = participantToRow(currentId, current);
+  const csv = rowsToCsv([row]);
+  downloadText(`${currentId}_reasoning_data.csv`, csv, "text/csv");
+});
+
+$("exportAllBtn").addEventListener("click", () => {
+  const ids = Object.keys(allData);
+  if(ids.length === 0){ alert("No participant data saved yet."); return; }
+  const rows = ids.map(id => participantToRow(id, allData[id]));
+  const csv = rowsToCsv(rows);
+  downloadText("all_participants_reasoning_data.csv", csv, "text/csv");
+});
+
+$("downloadBackupBtn").addEventListener("click", () => {
+  const json = JSON.stringify(allData, null, 2);
+  downloadText(`reasoning_coder_backup_${Date.now()}.json`, json, "application/json");
+});
+
+$("restoreBtn").addEventListener("click", () => $("restoreFile").click());
+$("restoreFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    try{
+      const restored = JSON.parse(evt.target.result);
+      if(!confirm("Restore from backup will merge into existing browser data (existing participants with the same ID will be overwritten). Continue?")) return;
+      allData = Object.assign({}, allData, restored);
+      saveAllData(allData);
+      alert("Restore complete.");
+      if(currentId && allData[currentId]){
+        current = allData[currentId];
+      }
+      renderAll();
+    }catch(err){
+      alert("Could not read that file as valid JSON backup.");
+    }
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
