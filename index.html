@@ -23,10 +23,11 @@
   .panel{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin-bottom:16px;}
   label{display:block; font-size:13px; font-weight:600; margin-bottom:4px; color:var(--text);}
   .hint{font-size:12px; color:var(--muted); margin:2px 0 8px;}
-  input[type=text], input[type=number]{
+  input[type=text], input[type=number], textarea{
     width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px;
-    font-size:14px; background:#fff; color:var(--text);
+    font-size:14px; background:#fff; color:var(--text); font-family:inherit;
   }
+  textarea{min-height:70px; resize:vertical;}
   .row{display:flex; gap:16px; flex-wrap:wrap;}
   .row > div{flex:1; min-width:200px;}
   button{
@@ -42,20 +43,13 @@
 
   .subsection{border:1px solid var(--border); border-radius:8px; padding:14px 16px; margin-bottom:14px; background:#fafbfa;}
 
-  .checklist{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;}
+  .checklist{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:4px;}
   .checklist label.chip{
     display:flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:20px;
     padding:6px 12px; font-size:13px; font-weight:500; cursor:pointer; background:#fff;
   }
   .checklist label.chip.checked{background:var(--accent-light); border-color:var(--accent);}
   .checklist input{margin:0;}
-
-  .computed{font-size:13px; color:var(--muted); margin:4px 0 10px;}
-  .computed strong{color:var(--text);}
-  .computed-highlight{
-    font-size:14px; font-weight:700; background:var(--accent-light); border:1px solid var(--accent);
-    border-radius:6px; padding:8px 12px; margin:10px 0;
-  }
 
   .scale-buttons{display:flex; gap:6px;}
   .scale-buttons button{min-width:38px;}
@@ -100,22 +94,22 @@
       <h2>Participant Details</h2>
       <div class="row">
         <div>
-          <label>Control ID</label>
-          <input type="text" id="controlId" placeholder="e.g. C001">
+          <label>Control Participant ID</label>
+          <input type="text" id="controlParticipantId" placeholder="e.g. C001">
           <p class="hint">This is linked to the Participant ID above, not a separate participant record.</p>
         </div>
+      </div>
+      <div>
+        <label>Comments — anything the child said about AI</label>
+        <textarea id="commentsAi" placeholder="Optional notes..."></textarea>
       </div>
     </div>
 
     <!-- HIGH PREFERENCE STORY -->
-    <div class="panel" id="storyPanel_high">
-      <h2>High Preference Story</h2>
-    </div>
+    <div class="panel" id="storyPanel_high"></div>
 
     <!-- LOW PREFERENCE / CONTROL STORY -->
-    <div class="panel" id="storyPanel_low">
-      <h2>Low Preference / Control Story</h2>
-    </div>
+    <div class="panel" id="storyPanel_low"></div>
 
     <!-- REVIEW -->
     <div class="panel">
@@ -155,19 +149,31 @@
 const STORAGE_KEY = "reasoning_coder_v1";
 
 // ============================================================================
-// REASON TYPE CHECKLISTS — starter sets. Add more items any time by adding
-// strings to these arrays; the UI and CSV export pick up new items automatically.
+// REASON TYPE CHECKLISTS. "key" is the exact CSV column name for that item;
+// "label" is what's shown on screen. Add more items any time by adding to
+// these arrays — the UI and CSV export pick up new items automatically.
 // ============================================================================
-const PLOT_REASON_TYPES = ["Favourite event 1", "Favourite event 2", "Favourite event 3"];
-const CHARACTER_REASON_TYPES = ["Favourite color", "Favourite outfit", "Favourite food", "Hair color", "Eye color"];
+const PLOT_ITEMS = [
+  { label: "Favourite event 1", key: "favourite_event1" },
+  { label: "Favourite event 2", key: "favourite_event2" },
+  { label: "Favourite event 3", key: "favourite_event3" }
+];
+const CHARACTER_ITEMS = [
+  { label: "Favourite color", key: "favourite_color" },
+  { label: "Favourite outfit", key: "favourite_outfit" },
+  { label: "Favourite food", key: "favourite_food" },
+  { label: "Hair color", key: "hair_color" },
+  { label: "Eye color", key: "eye_color" }
+];
+const ALL_ITEMS = [...PLOT_ITEMS, ...CHARACTER_ITEMS];
 
 const STORIES = [
-  { key: "high", label: "High Preference Story" },
-  { key: "low", label: "Low Preference / Control Story" }
+  { key: "high", label: "High Preference Story", condition: "high_preference" },
+  { key: "low", label: "Low Preference / Control Story", condition: "control" }
 ];
 
 function blankReasonGroup(){
-  return { totalReasons: null, plotChecks: {}, characterChecks: {} };
+  return { totalReasons: null, checks: {} }; // checks[itemKey] = true/false
 }
 function blankStory(){
   return {
@@ -179,9 +185,39 @@ function blankStory(){
 }
 function blankParticipant(){
   return {
-    controlId: "",
+    controlParticipantId: "",
+    commentsAi: "",
     stories: { high: blankStory(), low: blankStory() }
   };
+}
+
+// Fills in any missing fields on a participant record using current defaults, and
+// migrates data saved under older versions of this tool (e.g. separate plotChecks /
+// characterChecks objects) into the current single "checks" object shape.
+function normalizeParticipant(data){
+  const base = blankParticipant();
+  const merged = Object.assign({}, base, data || {});
+  // Migrate the old field name for control ID, if present
+  if(!merged.controlParticipantId && data && data.controlId){
+    merged.controlParticipantId = data.controlId;
+  }
+  merged.stories = merged.stories || {};
+  STORIES.forEach(({key}) => {
+    const story = Object.assign({}, blankStory(), merged.stories[key] || {});
+    ["positive", "negative"].forEach(groupKey => {
+      const incoming = story[groupKey] || {};
+      const group = Object.assign({}, blankReasonGroup(), incoming);
+      group.checks = Object.assign(
+        {},
+        incoming.plotChecks || {},
+        incoming.characterChecks || {},
+        incoming.checks || {}
+      );
+      story[groupKey] = group;
+    });
+    merged.stories[key] = story;
+  });
+  return merged;
 }
 
 function loadAllData(){
@@ -217,7 +253,9 @@ function loadParticipant(){
   if(!id){ alert("Enter a Participant ID first."); return; }
   currentId = id;
   if(allData[id]){
-    current = allData[id];
+    current = normalizeParticipant(allData[id]);
+    allData[id] = current;
+    saveAllData(allData);
     setStatus(`Loaded existing data for "${id}".`, true);
   }else{
     current = blankParticipant();
@@ -225,7 +263,8 @@ function loadParticipant(){
     saveAllData(allData);
     setStatus(`Started new record for "${id}".`, true);
   }
-  $("controlId").value = current.controlId || "";
+  $("controlParticipantId").value = current.controlParticipantId || "";
+  $("commentsAi").value = current.commentsAi || "";
   $("formArea").style.display = "block";
   renderAll();
 }
@@ -236,43 +275,27 @@ function clearParticipant(){
   current = blankParticipant();
   allData[currentId] = current;
   saveAllData(allData);
-  $("controlId").value = "";
+  $("controlParticipantId").value = "";
+  $("commentsAi").value = "";
   renderAll();
   setStatus(`Cleared data for "${currentId}".`, true);
 }
 
 $("loadBtn").addEventListener("click", loadParticipant);
 $("clearBtn").addEventListener("click", clearParticipant);
-$("controlId").addEventListener("input", () => {
+$("controlParticipantId").addEventListener("input", () => {
   if(!current) return;
-  current.controlId = $("controlId").value;
+  current.controlParticipantId = $("controlParticipantId").value;
+  saveCurrent();
+});
+$("commentsAi").addEventListener("input", () => {
+  if(!current) return;
+  current.commentsAi = $("commentsAi").value;
   saveCurrent();
 });
 
-// ---- Counting helpers ----
-function countChecked(checksObj){
-  return Object.values(checksObj).filter(Boolean).length;
-}
-function relevantReasonsCount(group){
-  return countChecked(group.plotChecks) + countChecked(group.characterChecks);
-}
-function totalReasonsForStory(story){
-  const pos = story.positive.totalReasons;
-  const neg = story.negative.totalReasons;
-  if(pos === null && neg === null) return null;
-  return (pos || 0) + (neg || 0);
-}
-function totalRelevantForStory(story){
-  return relevantReasonsCount(story.positive) + relevantReasonsCount(story.negative);
-}
-function totalIrrelevantForStory(story){
-  const total = totalReasonsForStory(story);
-  if(total === null) return null;
-  return Math.max(total - totalRelevantForStory(story), 0);
-}
-
-// ---- Rendering a reasons group (Positive or Negative) ----
-function renderReasonGroup(storyKey, groupKey, groupLabel, group){
+// ---- Rendering a reasons group (Positive or Negative) — no sums/formulas shown ----
+function renderReasonGroup(groupLabel, group){
   const wrap = document.createElement("div");
   wrap.className = "subsection";
 
@@ -280,7 +303,6 @@ function renderReasonGroup(storyKey, groupKey, groupLabel, group){
   title.textContent = groupLabel;
   wrap.appendChild(title);
 
-  // Total reasons (manual entry)
   const totalLabel = document.createElement("label");
   totalLabel.textContent = "Total Number of Reasons";
   wrap.appendChild(totalLabel);
@@ -292,61 +314,35 @@ function renderReasonGroup(storyKey, groupKey, groupLabel, group){
   totalInput.onchange = () => {
     group.totalReasons = totalInput.value === "" ? null : parseInt(totalInput.value, 10);
     saveCurrent();
-    renderAll();
   };
   wrap.appendChild(totalInput);
 
-  // Plot reasons checklist
   const plotLabel = document.createElement("label");
   plotLabel.textContent = "Plot Reasons";
   wrap.appendChild(plotLabel);
   const plotList = document.createElement("div");
   plotList.className = "checklist";
-  PLOT_REASON_TYPES.forEach(item => {
-    plotList.appendChild(renderCheckChip(item, !!group.plotChecks[item], (checked) => {
-      group.plotChecks[item] = checked;
+  PLOT_ITEMS.forEach(item => {
+    plotList.appendChild(renderCheckChip(item.label, !!group.checks[item.key], (checked) => {
+      group.checks[item.key] = checked;
       saveCurrent();
-      renderAll();
     }));
   });
   wrap.appendChild(plotList);
-  const plotComputed = document.createElement("div");
-  plotComputed.className = "computed";
-  plotComputed.innerHTML = `Plot Reasons Count: <strong>${countChecked(group.plotChecks)}</strong>`;
-  wrap.appendChild(plotComputed);
 
-  // Character reasons checklist
   const charLabel = document.createElement("label");
   charLabel.textContent = "Character Reasons";
+  charLabel.style.marginTop = "10px";
   wrap.appendChild(charLabel);
   const charList = document.createElement("div");
   charList.className = "checklist";
-  CHARACTER_REASON_TYPES.forEach(item => {
-    charList.appendChild(renderCheckChip(item, !!group.characterChecks[item], (checked) => {
-      group.characterChecks[item] = checked;
+  CHARACTER_ITEMS.forEach(item => {
+    charList.appendChild(renderCheckChip(item.label, !!group.checks[item.key], (checked) => {
+      group.checks[item.key] = checked;
       saveCurrent();
-      renderAll();
     }));
   });
   wrap.appendChild(charList);
-  const charComputed = document.createElement("div");
-  charComputed.className = "computed";
-  charComputed.innerHTML = `Character Reasons Count: <strong>${countChecked(group.characterChecks)}</strong>`;
-  wrap.appendChild(charComputed);
-
-  // Relevant reasons (computed) — reasons tied to something we manipulated (plot/character)
-  const relevant = relevantReasonsCount(group);
-  const relevantEl = document.createElement("div");
-  relevantEl.className = "computed-highlight";
-  relevantEl.textContent = `Relevant Reasons — manipulated (Plot + Character): ${relevant}`;
-  wrap.appendChild(relevantEl);
-
-  // Irrelevant reasons (computed) — reasons the child gave that aren't tied to anything we manipulated
-  const irrelevantEl = document.createElement("div");
-  irrelevantEl.className = "computed";
-  const irrelevantValue = group.totalReasons === null ? "—" : Math.max(group.totalReasons - relevant, 0);
-  irrelevantEl.innerHTML = `Irrelevant Reasons — given by the child, not tied to manipulation (Total − Relevant): <strong>${irrelevantValue}</strong>`;
-  wrap.appendChild(irrelevantEl);
 
   return wrap;
 }
@@ -356,7 +352,10 @@ function renderCheckChip(labelText, checked, onToggle){
   label.className = "chip" + (checked ? " checked" : "");
   label.innerHTML = `<input type="checkbox" ${checked ? "checked" : ""}> ${labelText}`;
   const input = label.querySelector("input");
-  input.onchange = () => onToggle(input.checked);
+  input.onchange = () => {
+    label.classList.toggle("checked", input.checked);
+    onToggle(input.checked);
+  };
   return label;
 }
 
@@ -379,7 +378,6 @@ function renderStoryPanel(storyKey, storyLabel){
   panel.innerHTML = `<h2>${storyLabel}</h2>`;
   const story = current.stories[storyKey];
 
-  // Enjoyment / Character Similarity at the top
   const scoresRow = document.createElement("div");
   scoresRow.className = "row";
   scoresRow.style.marginBottom = "18px";
@@ -405,36 +403,25 @@ function renderStoryPanel(storyKey, storyLabel){
   scoresRow.appendChild(simDiv);
 
   panel.appendChild(scoresRow);
-
-  // Totals summary — at the top, auto-calculated from the Positive/Negative sections below
-  const total = totalReasonsForStory(story);
-  const totalRelevant = totalRelevantForStory(story);
-  const totalIrrelevant = totalIrrelevantForStory(story);
-  const summaryEl = document.createElement("div");
-  summaryEl.className = "computed-highlight";
-  summaryEl.innerHTML =
-    `Total Number of Reasons (Total Positive + Total Negative): ${total === null ? "—" : total}<br>` +
-    `Total Relevant Reasons (Plot + Character, both groups): ${totalRelevant}<br>` +
-    `Total Irrelevant Reasons (Total − Relevant): ${totalIrrelevant === null ? "—" : totalIrrelevant}`;
-  panel.appendChild(summaryEl);
-
-  panel.appendChild(renderReasonGroup(storyKey, "positive", "Positive Reasons", story.positive));
-  panel.appendChild(renderReasonGroup(storyKey, "negative", "Negative Reasons", story.negative));
+  panel.appendChild(renderReasonGroup("Positive Reasons", story.positive));
+  panel.appendChild(renderReasonGroup("Negative Reasons", story.negative));
 }
 
-// ---- Review ----
+// ---- Review (raw entries only, no computed sums) ----
 function renderReview(){
   const rows = [["Field", "Value"]];
   rows.push(["Participant ID", currentId]);
-  rows.push(["Control ID", current.controlId]);
+  rows.push(["Control Participant ID", current.controlParticipantId]);
+  rows.push(["Comments (AI)", current.commentsAi]);
   STORIES.forEach(({key, label}) => {
     const s = current.stories[key];
-    rows.push([`${label} — Total Reasons`, totalReasonsForStory(s) ?? ""]);
-    rows.push([`${label} — Positive: total/relevant/plot/character`,
-      `${s.positive.totalReasons ?? ""} / ${relevantReasonsCount(s.positive)} / ${countChecked(s.positive.plotChecks)} / ${countChecked(s.positive.characterChecks)}`]);
-    rows.push([`${label} — Negative: total/relevant/plot/character`,
-      `${s.negative.totalReasons ?? ""} / ${relevantReasonsCount(s.negative)} / ${countChecked(s.negative.plotChecks)} / ${countChecked(s.negative.characterChecks)}`]);
     rows.push([`${label} — Enjoyment / Character Similarity`, `${s.enjoyment ?? ""} / ${s.characterSimilarity ?? ""}`]);
+    ["positive","negative"].forEach(groupKey => {
+      const g = s[groupKey];
+      const checkedItems = ALL_ITEMS.filter(item => g.checks[item.key]).map(item => item.label);
+      rows.push([`${label} — ${groupKey} total entered`, g.totalReasons ?? ""]);
+      rows.push([`${label} — ${groupKey} items checked`, checkedItems.join(", ") || "(none)"]);
+    });
   });
 
   const table = document.createElement("table");
@@ -476,7 +463,7 @@ function renderAll(){
 
 renderSavedParticipants();
 
-// ---- CSV export ----
+// ---- CSV export: long/vertical format, one row per participant × story × valence ----
 function csvEscape(val){
   if(val === undefined || val === null) return "";
   const s = String(val);
@@ -486,37 +473,39 @@ function csvEscape(val){
   return s;
 }
 
-function participantToRow(id, data){
-  const row = { participant_id: id, control_id: data.controlId };
+function participantToLongRows(id, data){
+  const rows = [];
+  STORIES.forEach(({key: storyKey, condition}) => {
+    const story = data.stories[storyKey];
+    [["positive", story.positive], ["negative", story.negative]].forEach(([valence, group]) => {
+      const total = group.totalReasons;
+      const relevant = ALL_ITEMS.filter(item => group.checks[item.key]).length;
+      const irrelevant = total === null ? "" : Math.max(total - relevant, 0);
+      const relevantProp = (total && total > 0) ? (relevant / total).toFixed(2) : "";
+      const irrelevantProp = (total && total > 0) ? (irrelevant / total).toFixed(2) : "";
 
-  STORIES.forEach(({key, label}) => {
-    const prefix = key === "high" ? "high_preference" : "low_preference";
-    const s = data.stories[key];
-
-    row[`${prefix}_total_number_of_reasons`] = totalReasonsForStory(s) ?? "";
-
-    ["positive","negative"].forEach(groupKey => {
-      const g = s[groupKey];
-      const relevantCount = relevantReasonsCount(g);
-      row[`${prefix}_total_number_of_${groupKey}_reasons`] = g.totalReasons ?? "";
-      row[`${prefix}_${groupKey}_relevant_reasons`] = relevantCount;
-      row[`${prefix}_${groupKey}_irrelevant_reasons`] = g.totalReasons === null ? "" : Math.max(g.totalReasons - relevantCount, 0);
-      row[`${prefix}_${groupKey}_number_of_plot_reasons`] = countChecked(g.plotChecks);
-      row[`${prefix}_${groupKey}_number_of_character_reasons`] = countChecked(g.characterChecks);
-      // Detailed checklist breakdown, for auditing which specific items were checked
-      PLOT_REASON_TYPES.forEach(item => {
-        row[`${prefix}_${groupKey}_plot_${item}`] = g.plotChecks[item] ? "Yes" : "No";
+      const row = {
+        participant_id: id,
+        control_participant_id: data.controlParticipantId,
+        condition: condition,
+        enjoyment: story.enjoyment ?? "",
+        similarity: story.characterSimilarity ?? "",
+        valence: valence,
+        total_count: total ?? "",
+        relevant_count: relevant,
+        irrelevant_count: irrelevant,
+        relevant_proportion: relevantProp,
+        irrelevant_proportion: irrelevantProp
+      };
+      ALL_ITEMS.forEach(item => {
+        row[item.key] = group.checks[item.key] ? 1 : 0;
       });
-      CHARACTER_REASON_TYPES.forEach(item => {
-        row[`${prefix}_${groupKey}_character_${item}`] = g.characterChecks[item] ? "Yes" : "No";
-      });
+      row.comments_ai = data.commentsAi || "";
+
+      rows.push(row);
     });
-
-    row[`${prefix}_story_enjoyment`] = s.enjoyment ?? "";
-    row[`${prefix}_character_similarity`] = s.characterSimilarity ?? "";
   });
-
-  return row;
+  return rows;
 }
 
 function rowsToCsv(rows){
@@ -543,15 +532,15 @@ function downloadText(filename, text, mime){
 
 $("exportCurrentBtn").addEventListener("click", () => {
   if(!currentId){ alert("Load a participant first."); return; }
-  const row = participantToRow(currentId, current);
-  const csv = rowsToCsv([row]);
+  const rows = participantToLongRows(currentId, current);
+  const csv = rowsToCsv(rows);
   downloadText(`${currentId}_reasoning_data.csv`, csv, "text/csv");
 });
 
 $("exportAllBtn").addEventListener("click", () => {
   const ids = Object.keys(allData);
   if(ids.length === 0){ alert("No participant data saved yet."); return; }
-  const rows = ids.map(id => participantToRow(id, allData[id]));
+  const rows = ids.flatMap(id => participantToLongRows(id, allData[id]));
   const csv = rowsToCsv(rows);
   downloadText("all_participants_reasoning_data.csv", csv, "text/csv");
 });
@@ -570,6 +559,7 @@ $("restoreFile").addEventListener("change", (e) => {
     try{
       const restored = JSON.parse(evt.target.result);
       if(!confirm("Restore from backup will merge into existing browser data (existing participants with the same ID will be overwritten). Continue?")) return;
+      Object.keys(restored).forEach(id => { restored[id] = normalizeParticipant(restored[id]); });
       allData = Object.assign({}, allData, restored);
       saveAllData(allData);
       alert("Restore complete.");
