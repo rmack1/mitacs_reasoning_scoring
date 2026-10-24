@@ -105,6 +105,13 @@
       </div>
     </div>
 
+    <!-- PRE-TEST MANIPULATION (THIS CHILD) -->
+    <div class="panel">
+      <h2>Pre-test Manipulation (this child)</h2>
+      <p class="hint">Type in this child's pre-test answers here. They are a reference for deciding whether a reason matches the manipulation, and they download as their own CSV.</p>
+      <div class="row" id="pretestFields"></div>
+    </div>
+
     <!-- HIGH PREFERENCE STORY -->
     <div class="panel" id="storyPanel_high"></div>
 
@@ -132,9 +139,19 @@
   <!-- EXPORT PANEL -->
   <div class="panel">
     <h2>Export</h2>
+    <p class="hint">Two separate CSV files: the reasoning data, and the pre-test manipulation data (one row per participant).</p>
+    <label>Reasoning data (everything except pre-test manipulation)</label>
+    <div class="btn-group" style="margin-bottom:14px;">
+      <button id="exportCurrentBtn">This participant (CSV)</button>
+      <button id="exportAllBtn">ALL participants (CSV)</button>
+    </div>
+    <label>Pre-test manipulation data</label>
+    <div class="btn-group" style="margin-bottom:14px;">
+      <button id="exportPretestCurrentBtn">This participant (CSV)</button>
+      <button id="exportPretestAllBtn">ALL participants (CSV)</button>
+    </div>
+    <label>Backup</label>
     <div class="btn-group">
-      <button id="exportCurrentBtn">Export this participant (CSV)</button>
-      <button id="exportAllBtn">Export ALL participants (CSV)</button>
       <button id="downloadBackupBtn">Download full backup (JSON)</button>
       <label class="small" style="display:inline-block;">
         <input type="file" id="restoreFile" accept="application/json" style="display:none;">
@@ -162,14 +179,15 @@ const CHARACTER_ITEMS = [
   { label: "Favourite color", key: "favourite_color" },
   { label: "Favourite outfit", key: "favourite_outfit" },
   { label: "Favourite food", key: "favourite_food" },
+  { label: "Favourite animal", key: "favourite_animal" },
   { label: "Hair color", key: "hair_color" },
   { label: "Eye color", key: "eye_color" }
 ];
 const ALL_ITEMS = [...PLOT_ITEMS, ...CHARACTER_ITEMS];
 
 const STORIES = [
-  { key: "high", label: "High Preference Story", condition: "high_preference" },
-  { key: "low", label: "Low Preference / Control Story", condition: "control" }
+  { key: "high", label: "High Preference Story", condition: "high_preference", scoreRelevance: true },
+  { key: "low", label: "Low Preference / Control Story", condition: "control", scoreRelevance: false }
 ];
 
 function blankReasonGroup(){
@@ -180,7 +198,8 @@ function blankStory(){
     positive: blankReasonGroup(),
     negative: blankReasonGroup(),
     enjoyment: null,
-    characterSimilarity: null
+    characterSimilarity: null,
+    sharedThings: null // true = Yes, false = No, null = not answered
   };
 }
 function blankParticipant(){
@@ -229,6 +248,20 @@ function loadAllData(){
 function saveAllData(all){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 }
+
+// Pre-test manipulation answers (hair color, eye color, ...) per participant ID.
+// Stored separately from the scoring data.
+const PRETEST_STORAGE_KEY = "reasoning_coder_pretest_v1";
+function loadPretest(){
+  try{
+    const raw = localStorage.getItem(PRETEST_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+function savePretest(){
+  localStorage.setItem(PRETEST_STORAGE_KEY, JSON.stringify(pretestData));
+}
+let pretestData = loadPretest();
 
 let allData = loadAllData();
 let currentId = null;
@@ -295,7 +328,7 @@ $("commentsAi").addEventListener("input", () => {
 });
 
 // ---- Rendering a reasons group (Positive or Negative) — no sums/formulas shown ----
-function renderReasonGroup(groupLabel, group){
+function renderReasonGroup(groupLabel, group, scoreRelevance){
   const wrap = document.createElement("div");
   wrap.className = "subsection";
 
@@ -316,6 +349,14 @@ function renderReasonGroup(groupLabel, group){
     saveCurrent();
   };
   wrap.appendChild(totalInput);
+
+  if(!scoreRelevance){
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = "Relevance to the manipulation is only scored for the High Preference story.";
+    wrap.appendChild(note);
+    return wrap;
+  }
 
   const plotLabel = document.createElement("label");
   plotLabel.textContent = "Plot Reasons";
@@ -373,7 +414,7 @@ function renderScaleButtons(value, max, onSelect){
 }
 
 // ---- Rendering a full story panel ----
-function renderStoryPanel(storyKey, storyLabel){
+function renderStoryPanel(storyKey, storyLabel, scoreRelevance){
   const panel = $(`storyPanel_${storyKey}`);
   panel.innerHTML = `<h2>${storyLabel}</h2>`;
   const story = current.stories[storyKey];
@@ -403,8 +444,29 @@ function renderStoryPanel(storyKey, storyLabel){
   scoresRow.appendChild(simDiv);
 
   panel.appendChild(scoresRow);
-  panel.appendChild(renderReasonGroup("Positive Reasons", story.positive));
-  panel.appendChild(renderReasonGroup("Negative Reasons", story.negative));
+
+  const sharedDiv = document.createElement("div");
+  sharedDiv.style.marginBottom = "18px";
+  const sharedLabel = document.createElement("label");
+  sharedLabel.textContent = "Did the child say they like this story because they share the same things with the character (e.g., interests, appearance, experiences)?";
+  sharedDiv.appendChild(sharedLabel);
+  const yesNo = document.createElement("div");
+  yesNo.className = "scale-buttons";
+  [{label: "Yes", value: true}, {label: "No", value: false}].forEach(opt => {
+    const b = document.createElement("button");
+    b.className = "small" + (story.sharedThings === opt.value ? " active" : "");
+    b.textContent = opt.label;
+    b.onclick = () => {
+      story.sharedThings = (story.sharedThings === opt.value) ? null : opt.value; // click again to clear
+      saveCurrent(); renderAll();
+    };
+    yesNo.appendChild(b);
+  });
+  sharedDiv.appendChild(yesNo);
+  panel.appendChild(sharedDiv);
+
+  panel.appendChild(renderReasonGroup("Positive Reasons", story.positive, scoreRelevance));
+  panel.appendChild(renderReasonGroup("Negative Reasons", story.negative, scoreRelevance));
 }
 
 // ---- Review (raw entries only, no computed sums) ----
@@ -413,14 +475,19 @@ function renderReview(){
   rows.push(["Participant ID", currentId]);
   rows.push(["Control Participant ID", current.controlParticipantId]);
   rows.push(["Comments (AI)", current.commentsAi]);
-  STORIES.forEach(({key, label}) => {
+  const pre = pretestData[currentId] || {};
+  rows.push(["Pre-test manipulation", ALL_ITEMS.filter(i => pre[i.key]).map(i => `${i.label}: ${pre[i.key]}`).join("; ") || "(none)"]);
+  STORIES.forEach(({key, label, scoreRelevance}) => {
     const s = current.stories[key];
     rows.push([`${label} — Enjoyment / Character Similarity`, `${s.enjoyment ?? ""} / ${s.characterSimilarity ?? ""}`]);
+    rows.push([`${label} — Liked because shares same things`, s.sharedThings === true ? "Yes" : (s.sharedThings === false ? "No" : "")]);
     ["positive","negative"].forEach(groupKey => {
       const g = s[groupKey];
-      const checkedItems = ALL_ITEMS.filter(item => g.checks[item.key]).map(item => item.label);
       rows.push([`${label} — ${groupKey} total entered`, g.totalReasons ?? ""]);
-      rows.push([`${label} — ${groupKey} items checked`, checkedItems.join(", ") || "(none)"]);
+      if(scoreRelevance){
+        const checkedItems = ALL_ITEMS.filter(item => g.checks[item.key]).map(item => item.label);
+        rows.push([`${label} — ${groupKey} items checked`, checkedItems.join(", ") || "(none)"]);
+      }
     });
   });
 
@@ -454,10 +521,34 @@ function renderSavedParticipants(){
   box.innerHTML = `<p style="margin:0 0 8px;"><strong>${ids.length}</strong> participant(s) saved: ${ids.map(id => csvEscapeHtml(id)).join(", ")}</p>`;
 }
 
+function renderPretestPanel(){
+  const box = $("pretestFields");
+  box.innerHTML = "";
+  if(!currentId) return;
+  const entry = pretestData[currentId] || {};
+  ALL_ITEMS.forEach(item => {
+    const d = document.createElement("div");
+    const l = document.createElement("label");
+    l.textContent = item.label;
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.value = entry[item.key] || "";
+    inp.oninput = () => {
+      if(!pretestData[currentId]) pretestData[currentId] = {};
+      pretestData[currentId][item.key] = inp.value;
+      savePretest();
+    };
+    d.appendChild(l);
+    d.appendChild(inp);
+    box.appendChild(d);
+  });
+}
+
 function renderAll(){
   renderSavedParticipants();
   if(!current) return;
-  STORIES.forEach(({key, label}) => renderStoryPanel(key, label));
+  renderPretestPanel();
+  STORIES.forEach(({key, label, scoreRelevance}) => renderStoryPanel(key, label, scoreRelevance));
   renderReview();
 }
 
@@ -475,14 +566,19 @@ function csvEscape(val){
 
 function participantToLongRows(id, data){
   const rows = [];
-  STORIES.forEach(({key: storyKey, condition}) => {
+  STORIES.forEach(({key: storyKey, condition, scoreRelevance}) => {
     const story = data.stories[storyKey];
     [["positive", story.positive], ["negative", story.negative]].forEach(([valence, group]) => {
       const total = group.totalReasons;
-      const relevant = ALL_ITEMS.filter(item => group.checks[item.key]).length;
-      const irrelevant = total === null ? "" : Math.max(total - relevant, 0);
-      const relevantProp = (total && total > 0) ? (relevant / total).toFixed(2) : "";
-      const irrelevantProp = (total && total > 0) ? (irrelevant / total).toFixed(2) : "";
+      // Relevance to the manipulation is only scored for the high preference story;
+      // for the control story these columns are left blank (not scored), not 0.
+      let relevant = "", irrelevant = "", relevantProp = "", irrelevantProp = "";
+      if(scoreRelevance){
+        relevant = ALL_ITEMS.filter(item => group.checks[item.key]).length;
+        irrelevant = total === null ? "" : Math.max(total - relevant, 0);
+        relevantProp = (total && total > 0) ? (relevant / total).toFixed(2) : "";
+        irrelevantProp = (total && total > 0) ? (irrelevant / total).toFixed(2) : "";
+      }
 
       const row = {
         participant_id: id,
@@ -490,6 +586,7 @@ function participantToLongRows(id, data){
         condition: condition,
         enjoyment: story.enjoyment ?? "",
         similarity: story.characterSimilarity ?? "",
+        mentioned_shared_things: story.sharedThings === true ? 1 : (story.sharedThings === false ? 0 : ""),
         valence: valence,
         total_count: total ?? "",
         relevant_count: relevant,
@@ -498,7 +595,7 @@ function participantToLongRows(id, data){
         irrelevant_proportion: irrelevantProp
       };
       ALL_ITEMS.forEach(item => {
-        row[item.key] = group.checks[item.key] ? 1 : 0;
+        row[item.key] = scoreRelevance ? (group.checks[item.key] ? 1 : 0) : "";
       });
       row.comments_ai = data.commentsAi || "";
 
@@ -506,6 +603,14 @@ function participantToLongRows(id, data){
     });
   });
   return rows;
+}
+
+// One row per participant: participant_id plus one column per pre-test item.
+function pretestRowFor(id){
+  const pre = pretestData[id] || {};
+  const row = { participant_id: id };
+  ALL_ITEMS.forEach(item => { row[item.key] = pre[item.key] || ""; });
+  return row;
 }
 
 function rowsToCsv(rows){
@@ -545,8 +650,20 @@ $("exportAllBtn").addEventListener("click", () => {
   downloadText("all_participants_reasoning_data.csv", csv, "text/csv");
 });
 
+$("exportPretestCurrentBtn").addEventListener("click", () => {
+  if(!currentId){ alert("Load a participant first."); return; }
+  downloadText(`${currentId}_pretest_manipulation.csv`, rowsToCsv([pretestRowFor(currentId)]), "text/csv");
+});
+
+$("exportPretestAllBtn").addEventListener("click", () => {
+  // Everyone who has scoring data OR pre-test answers
+  const ids = Array.from(new Set([...Object.keys(allData), ...Object.keys(pretestData)]));
+  if(ids.length === 0){ alert("No pre-test manipulation data saved yet."); return; }
+  downloadText("all_participants_pretest_manipulation.csv", rowsToCsv(ids.map(pretestRowFor)), "text/csv");
+});
+
 $("downloadBackupBtn").addEventListener("click", () => {
-  const json = JSON.stringify(allData, null, 2);
+  const json = JSON.stringify({ __format: 2, participants: allData, pretest: pretestData }, null, 2);
   downloadText(`reasoning_coder_backup_${Date.now()}.json`, json, "application/json");
 });
 
@@ -557,8 +674,15 @@ $("restoreFile").addEventListener("change", (e) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
     try{
-      const restored = JSON.parse(evt.target.result);
+      const parsed = JSON.parse(evt.target.result);
+      // New backups hold {participants, pretest}; older backups are just the participants object.
+      const isV2 = parsed && parsed.__format === 2;
+      const restored = isV2 ? (parsed.participants || {}) : parsed;
       if(!confirm("Restore from backup will merge into existing browser data (existing participants with the same ID will be overwritten). Continue?")) return;
+      if(isV2){
+        pretestData = Object.assign({}, pretestData, parsed.pretest || {});
+        savePretest();
+      }
       Object.keys(restored).forEach(id => { restored[id] = normalizeParticipant(restored[id]); });
       allData = Object.assign({}, allData, restored);
       saveAllData(allData);
