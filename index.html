@@ -199,7 +199,8 @@ function blankStory(){
     negative: blankReasonGroup(),
     enjoyment: null,
     characterSimilarity: null,
-    sharedThings: null // true = Yes, false = No, null = not answered
+    sharedThingsEnjoyment: null, // Yes/No asked with the enjoyment rating (true = Yes, false = No, null = not answered)
+    sharedThingsSimilarity: null // Yes/No asked with the character similarity rating
   };
 }
 function blankParticipant(){
@@ -223,6 +224,10 @@ function normalizeParticipant(data){
   merged.stories = merged.stories || {};
   STORIES.forEach(({key}) => {
     const story = Object.assign({}, blankStory(), merged.stories[key] || {});
+    if(story.sharedThings !== undefined){
+      if(story.sharedThingsEnjoyment === null) story.sharedThingsEnjoyment = story.sharedThings;
+      delete story.sharedThings;
+    }
     ["positive", "negative"].forEach(groupKey => {
       const incoming = story[groupKey] || {};
       const group = Object.assign({}, blankReasonGroup(), incoming);
@@ -358,13 +363,18 @@ function renderReasonGroup(groupLabel, group, scoreRelevance){
     return wrap;
   }
 
+  const chipHint = document.createElement("p");
+  chipHint.className = "hint";
+  chipHint.textContent = "Each box shows this child's pre-test answer from the Pre-test Manipulation panel above.";
+  wrap.appendChild(chipHint);
+
   const plotLabel = document.createElement("label");
   plotLabel.textContent = "Plot Reasons";
   wrap.appendChild(plotLabel);
   const plotList = document.createElement("div");
   plotList.className = "checklist";
   PLOT_ITEMS.forEach(item => {
-    plotList.appendChild(renderCheckChip(item.label, !!group.checks[item.key], (checked) => {
+    plotList.appendChild(renderCheckChip(chipLabel(item), !!group.checks[item.key], (checked) => {
       group.checks[item.key] = checked;
       saveCurrent();
     }));
@@ -378,7 +388,7 @@ function renderReasonGroup(groupLabel, group, scoreRelevance){
   const charList = document.createElement("div");
   charList.className = "checklist";
   CHARACTER_ITEMS.forEach(item => {
-    charList.appendChild(renderCheckChip(item.label, !!group.checks[item.key], (checked) => {
+    charList.appendChild(renderCheckChip(chipLabel(item), !!group.checks[item.key], (checked) => {
       group.checks[item.key] = checked;
       saveCurrent();
     }));
@@ -388,16 +398,45 @@ function renderReasonGroup(groupLabel, group, scoreRelevance){
   return wrap;
 }
 
+// "Favourite color" -> "Favourite color: Green" once the child's pre-test answer has been typed in
+function chipLabel(item){
+  const val = ((pretestData[currentId] || {})[item.key] || "").trim();
+  return val ? `${item.label}: ${val}` : item.label;
+}
+
 function renderCheckChip(labelText, checked, onToggle){
   const label = document.createElement("label");
   label.className = "chip" + (checked ? " checked" : "");
-  label.innerHTML = `<input type="checkbox" ${checked ? "checked" : ""}> ${labelText}`;
-  const input = label.querySelector("input");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  label.appendChild(input);
+  label.appendChild(document.createTextNode(" " + labelText));
   input.onchange = () => {
     label.classList.toggle("checked", input.checked);
     onToggle(input.checked);
   };
   return label;
+}
+
+// Yes / No question; click the selected answer again to clear it
+function renderYesNo(questionText, value, onChange){
+  const wrap = document.createElement("div");
+  wrap.style.marginTop = "12px";
+  const q = document.createElement("label");
+  q.textContent = questionText;
+  wrap.appendChild(q);
+  const btns = document.createElement("div");
+  btns.className = "scale-buttons";
+  [{label: "Yes", v: true}, {label: "No", v: false}].forEach(opt => {
+    const b = document.createElement("button");
+    b.className = "small" + (value === opt.v ? " active" : "");
+    b.textContent = opt.label;
+    b.onclick = () => onChange(value === opt.v ? null : opt.v);
+    btns.appendChild(b);
+  });
+  wrap.appendChild(btns);
+  return wrap;
 }
 
 function renderScaleButtons(value, max, onSelect){
@@ -431,6 +470,11 @@ function renderStoryPanel(storyKey, storyLabel, scoreRelevance){
     story.enjoyment = v;
     saveCurrent(); renderAll();
   }));
+  enjoyDiv.appendChild(renderYesNo(
+    "Did the child say they like this story because they share the same things with the character (e.g., interests, appearance, experiences)?",
+    story.sharedThingsEnjoyment,
+    (v) => { story.sharedThingsEnjoyment = v; saveCurrent(); renderAll(); }
+  ));
   scoresRow.appendChild(enjoyDiv);
 
   const simDiv = document.createElement("div");
@@ -441,29 +485,14 @@ function renderStoryPanel(storyKey, storyLabel, scoreRelevance){
     story.characterSimilarity = v;
     saveCurrent(); renderAll();
   }));
+  simDiv.appendChild(renderYesNo(
+    "Did the child say they feel similar to the character because they share the same things (e.g., interests, appearance, experiences)?",
+    story.sharedThingsSimilarity,
+    (v) => { story.sharedThingsSimilarity = v; saveCurrent(); renderAll(); }
+  ));
   scoresRow.appendChild(simDiv);
 
   panel.appendChild(scoresRow);
-
-  const sharedDiv = document.createElement("div");
-  sharedDiv.style.marginBottom = "18px";
-  const sharedLabel = document.createElement("label");
-  sharedLabel.textContent = "Did the child say they like this story because they share the same things with the character (e.g., interests, appearance, experiences)?";
-  sharedDiv.appendChild(sharedLabel);
-  const yesNo = document.createElement("div");
-  yesNo.className = "scale-buttons";
-  [{label: "Yes", value: true}, {label: "No", value: false}].forEach(opt => {
-    const b = document.createElement("button");
-    b.className = "small" + (story.sharedThings === opt.value ? " active" : "");
-    b.textContent = opt.label;
-    b.onclick = () => {
-      story.sharedThings = (story.sharedThings === opt.value) ? null : opt.value; // click again to clear
-      saveCurrent(); renderAll();
-    };
-    yesNo.appendChild(b);
-  });
-  sharedDiv.appendChild(yesNo);
-  panel.appendChild(sharedDiv);
 
   panel.appendChild(renderReasonGroup("Positive Reasons", story.positive, scoreRelevance));
   panel.appendChild(renderReasonGroup("Negative Reasons", story.negative, scoreRelevance));
@@ -480,7 +509,9 @@ function renderReview(){
   STORIES.forEach(({key, label, scoreRelevance}) => {
     const s = current.stories[key];
     rows.push([`${label} — Enjoyment / Character Similarity`, `${s.enjoyment ?? ""} / ${s.characterSimilarity ?? ""}`]);
-    rows.push([`${label} — Liked because shares same things`, s.sharedThings === true ? "Yes" : (s.sharedThings === false ? "No" : "")]);
+    const ynText = v => v === true ? "Yes" : (v === false ? "No" : "");
+    rows.push([`${label} — Enjoyment: because shares same things`, ynText(s.sharedThingsEnjoyment)]);
+    rows.push([`${label} — Similarity: because shares same things`, ynText(s.sharedThingsSimilarity)]);
     ["positive","negative"].forEach(groupKey => {
       const g = s[groupKey];
       rows.push([`${label} — ${groupKey} total entered`, g.totalReasons ?? ""]);
@@ -537,6 +568,8 @@ function renderPretestPanel(){
       if(!pretestData[currentId]) pretestData[currentId] = {};
       pretestData[currentId][item.key] = inp.value;
       savePretest();
+      renderStories();   // chips in the High Preference scoring show what you type
+      renderReview();
     };
     d.appendChild(l);
     d.appendChild(inp);
@@ -544,11 +577,16 @@ function renderPretestPanel(){
   });
 }
 
+function renderStories(){
+  if(!current) return;
+  STORIES.forEach(({key, label, scoreRelevance}) => renderStoryPanel(key, label, scoreRelevance));
+}
+
 function renderAll(){
   renderSavedParticipants();
   if(!current) return;
   renderPretestPanel();
-  STORIES.forEach(({key, label, scoreRelevance}) => renderStoryPanel(key, label, scoreRelevance));
+  renderStories();
   renderReview();
 }
 
@@ -563,6 +601,9 @@ function csvEscape(val){
   }
   return s;
 }
+
+// Yes -> 1, No -> 0, unanswered -> blank
+function yn(v){ return v === true ? 1 : (v === false ? 0 : ""); }
 
 function participantToLongRows(id, data){
   const rows = [];
@@ -585,8 +626,9 @@ function participantToLongRows(id, data){
         control_participant_id: data.controlParticipantId,
         condition: condition,
         enjoyment: story.enjoyment ?? "",
+        enjoyment_shared_things: yn(story.sharedThingsEnjoyment),
         similarity: story.characterSimilarity ?? "",
-        mentioned_shared_things: story.sharedThings === true ? 1 : (story.sharedThings === false ? 0 : ""),
+        similarity_shared_things: yn(story.sharedThingsSimilarity),
         valence: valence,
         total_count: total ?? "",
         relevant_count: relevant,
